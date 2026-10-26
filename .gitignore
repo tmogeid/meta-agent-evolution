@@ -1,0 +1,41 @@
+node_modules/
+coverage/
+npm-debug.log*
+.DS_Store
+Thumbs.db
+
+# Local environment files
+.env
+.env.*
+!.env.example
+!.env.sample
+!.env.*.example
+!.env.*.sample
+
+# Private credentials and key material
+credentials*
+secrets*
+!credentials.example
+!credentials.sample
+!credentials.*.example
+!credentials.*.sample
+!secrets.example
+!secrets.sample
+!secrets.*.example
+!secrets.*.sample
+*.pem
+*.key
+*.p12
+
+# Local OpenCode handoffs
+.opencode/handoffs/
+
+# Local databases and sessions
+*.db
+*.db-wal
+*.db-shm
+*.db3
+*.sqlite
+*.sqlite3
+*.session
+sessions/
