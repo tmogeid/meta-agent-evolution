@@ -2,7 +2,7 @@
 
 ## Estado
 
-Documento de diseño inicial. No hay motor ni adaptadores implementados; el módulo puro de ingesta de evidencias sintéticas sí está implementado.
+Documento de diseño inicial. No hay motor ni adaptadores implementados; están implementados los módulos puros de ingesta de evidencias sintéticas y detección de fallos recurrentes.
 
 ## Componentes futuros
 
@@ -34,8 +34,30 @@ La evolución Meta queda fuera del alcance inicial. Solo podrá considerarse cua
 
 El módulo puro `src/evidence.mjs` exporta `validateEvidence(record)` e `ingestBatch(records, options)`. No realiza E/S ni depende de servicios, bases de datos, adaptadores o proveedores de modelos.
 
-El contrato de evidencia contiene exactamente `source`, `harness`, `session`, `date`, `type` y `result`. Los cuatro identificadores son cadenas no vacías de hasta 1.024 caracteres y se recortan en los extremos; las fechas UTC ISO 8601 válidas admiten hasta nueve dígitos fraccionarios y se canonizan sin perder precisión. `result` acepta valores JSON seguros y finitos, con cadenas de hasta 100.000 caracteres, un máximo agregado de 1.000.000 de caracteres, 100 niveles y 10.000 nodos. Se rechazan propiedades fuera del esquema. `options` debe ser un objeto vacío; el lote procesa todas las posiciones recibidas.
+El contrato de evidencia contiene exactamente `source`, `harness`, `session`, `date`, `type` y `result`. Los cuatro identificadores son cadenas no vacías de hasta 1.024 caracteres y se recortan en los extremos; las fechas UTC ISO 8601 válidas admiten hasta nueve dígitos fraccionarios y se canonizan sin perder precisión.
 
-La validación devuelve `{ valid, errors }`; cada error identifica `field` y `message`, sin incluir valores de entrada. La ingesta devuelve `{ accepted, rejected }`. Las entradas aceptadas se agrupan por sus seis campos normalizados, conservando el orden de la primera aparición; cada grupo mantiene `occurrences` y un elemento `provenance` por aparición, con los valores originales validados de `source`, `harness`, `session` y `date`, además del índice del lote. Los arneses distintos permanecen separados. Los rechazos por registro incluyen índice y errores, sin copiar el contenido rechazado. Una entrada de lote u opciones inválidas se devuelve como rechazo de lote con índice `null`.
+`result` admite valores JSON seguros y finitos: cadenas, números finitos, booleanos, `null`, arreglos y objetos planos acíclicos. Las cadenas tienen un máximo de 100.000 caracteres cada una, 1.000.000 en total, 100 niveles y 10.000 nodos. Se rechazan propiedades fuera del esquema. `options` debe ser un objeto vacío; el lote procesa todas las posiciones recibidas.
 
-Esta etapa solo procesa datos sintéticos recibidos como argumento. No crea fixtures, no almacena evidencias y no avanza a extracción de patrones ni a propuestas. La aprobación humana sigue siendo obligatoria para cualquier evaluación futura.
+La validación devuelve `{ valid, errors }`; cada error identifica `field` y `message`, sin incluir valores de entrada. La ingesta devuelve `{ accepted, rejected }`.
+
+Las entradas aceptadas se agrupan por sus seis campos normalizados, conservando el orden de la primera aparición; cada grupo mantiene `occurrences` y un elemento `provenance` por aparición, con los valores originales validados de `source`, `harness`, `session` y `date`, además del índice del lote. Los arneses distintos permanecen separados.
+
+Los rechazos por registro incluyen índice y errores, sin copiar el contenido rechazado. Una entrada de lote u opciones inválidas se devuelve como rechazo de lote con índice `null`.
+
+Esta etapa procesa datos sintéticos recibidos como argumento. No crea fixtures ni almacena evidencias. La detección de patrones no formula propuestas ni realiza evaluaciones; la aprobación humana sigue siendo obligatoria para cualquier evaluación futura.
+
+## Detector de fallos recurrentes implementado
+
+El módulo puro `src/patterns.mjs` exporta `detectRecurrentFailures(acceptedRecords, options = {})`. No importa `src/evidence.mjs`, no realiza E/S y no depende de servicios ni proveedores. Solo recibe `accepted` de `ingestBatch`; nunca analiza `rejected` ni sus errores.
+
+El detector considera registros con `harness`, `session` y `date` válidos y un `result` que sea objeto plano JSON seguro, finito y acíclico. `result.status` debe ser exactamente `error` o `failure`.
+
+Para el código, `code` y `failureCode` solo aportan valores si son strings no vacíos tras `trim`: ningún valor significa que no hay fallo y el registro se omite; un único valor o valores iguales dan el código, y valores distintos omiten el registro.
+
+Para el tipo, `type`, `failureType` y `failure_type` usan la misma regla; si no hay valor, el tipo es `null`. No se copian ni se devuelven propiedades arbitrarias de `result`.
+
+`acceptedRecords` debe ser un arreglo. `options` debe ser un objeto no nulo ni arreglo; `minSessions` debe ser un entero ≥ 2 (predeterminado 2). Un arreglo u opciones inválidos producen `TypeError`; un `minSessions` no entero también produce `TypeError`, y un entero menor que 2 produce `RangeError`. Los elementos malformados se omiten sin incluir sus valores en errores.
+
+La clave de grupo es `JSON.stringify([harness, code, type ?? ""])`; el orden de salida es ascendente por `harness`, `code` y `type`. Cada resultado tiene `{ harness, code, type, eventCount, totalOccurrences, sessionCount, sessions, evidenceRefs }`.
+
+`eventCount` cuenta entradas aceptadas del grupo; `totalOccurrences` suma `occurrences` si es un entero seguro positivo y usa 1 en caso contrario. `sessions` es la unión ordenada de `session` y `provenance[].session`. `evidenceRefs` mantiene el orden de los índices aceptados; cada referencia contiene solo `{ acceptedIndex, session, harness, date, occurrences }`. Solo se devuelven grupos con al menos `minSessions` sesiones distintas.

@@ -25,7 +25,7 @@ Cada registro de evidencia procesado debe satisfacer el contrato canónico:
 - `session`: Identificador de sesión.
 - `date`: Marca temporal ISO 8601 UTC válida.
 - `type`: Categoría tipada del evento.
-- `result`: Estructura o valor de resultado del evento.
+- `result`: Valor JSON seguro: cadena, número finito, booleano, `null`, arreglo u objeto plano acíclico, sujeto a los límites de tamaño, profundidad y nodos de la validación.
 
 ---
 
@@ -143,7 +143,7 @@ Campos validados:
 - `session`: cadena no vacía.
 - `date`: cadena con formato ISO 8601 parseable y coherente (`new Date(date).toISOString() === date` o expresión regular equivalente).
 - `type`: cadena identificadora del tipo de evento.
-- `result`: valor definido (objeto, número, booleano o cadena).
+- `result`: valor JSON seguro: cadena, número finito, booleano, `null`, arreglo u objeto plano acíclico, sujeto a los límites de tamaño, profundidad y nodos de la validación.
 
 ### 5.2. Desduplicación y Procedencia
 
@@ -161,3 +161,15 @@ Para el manejo de eventos duplicados:
 - **ADR-003 (Entorno Node.js Puro):** Uso exclusivo de APIs nativas de Node.js 22 (`crypto`, `test`, `assert`). No se añaden paquetes a `node_modules`.
 - **ADR-004 (Persistencia y Publicación):** Todo avance se consolida mediante commits locales. Prohibido ejecutar `git push` o configurar remotos de publicación automáticos.
 - **ADR-005 (Causa de Replanificación):** La actualización a v3 DRAFT responde exclusivamente a la introducción formal de la primera funcionalidad técnica (ingesta de evidencias) en sustitución del estado documental preliminar.
+
+## Aclaración de implementación posterior: detección de fallos recurrentes
+
+Esta nota documenta una implementación posterior; no cambia el alcance ni el estado v3 DRAFT de este plan. `src/patterns.mjs` exporta `detectRecurrentFailures(acceptedRecords, options = {})` y consume solo `accepted` de `ingestBatch`. `result` debe ser un objeto plano JSON seguro, finito y acíclico. Solo se consideran estados exactamente `error` o `failure`.
+
+Los alias `code`/`failureCode` y `type`/`failureType`/`failure_type` cuentan solo si son strings no vacíos tras `trim`. Alias de código sin valor válido significan que no hay fallo y se omite el registro; alias de tipo sin valor válido producen `null`. Valores de alias distintos en un grupo omiten el registro. Nunca se analizan `rejected` ni sus errores, y no se copian ni devuelven propiedades arbitrarias de `result`.
+
+`acceptedRecords` debe ser un arreglo; `options` debe ser un objeto no nulo ni arreglo. `minSessions` debe ser entero ≥ 2 y su valor predeterminado es 2. El arreglo u opciones inválidos y un valor no entero producen `TypeError`; un entero menor que 2 produce `RangeError`. Las entradas malformadas se omiten sin exponer sus valores.
+
+La agrupación usa `JSON.stringify([harness, code, type ?? ""])`; la salida se ordena por `harness`, `code` y `type`. Cada patrón contiene `{ harness, code, type, eventCount, totalOccurrences, sessionCount, sessions, evidenceRefs }`.
+
+`eventCount` cuenta entradas aceptadas; `totalOccurrences` suma ocurrencias válidas y usa 1 si no lo son. `sessions` es la unión ordenada de `session` y `provenance[].session`. Las referencias preservan el orden del arreglo aceptado y contienen solo `{ acceptedIndex, session, harness, date, occurrences }`. El umbral predeterminado es 2 sesiones distintas.

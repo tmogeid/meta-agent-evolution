@@ -525,3 +525,23 @@ test("ingesta no muta el registro de entrada", () => {
   assert.equal(JSON.stringify(record), before);
   assert.equal(record.source, "  synthetic-source  ");
 });
+
+// CROSS-SESSION: misma falla en sesiones distintas no se fusiona
+test("misma falla en sesiones distintas no se fusiona en ingestBatch", () => {
+  // Arrange
+  const first = withOverrides({ session: "session-001" });
+  const second = withOverrides({ session: "session-002" });
+  // Act
+  const outcome = ingestBatch([first, second]);
+  // Assert
+  assert.equal(outcome.accepted.length, 2);
+  assert.equal(outcome.rejected.length, 0);
+  assert.equal(outcome.accepted[0].occurrences, 1);
+  assert.equal(outcome.accepted[1].occurrences, 1);
+  assert.equal(outcome.accepted[0].session, "session-001");
+  assert.equal(outcome.accepted[1].session, "session-002");
+  assert.equal(outcome.accepted[0].provenance.length, 1);
+  assert.equal(outcome.accepted[1].provenance.length, 1);
+  assert.equal(outcome.accepted[0].provenance[0].session, "session-001");
+  assert.equal(outcome.accepted[1].provenance[0].session, "session-002");
+});
