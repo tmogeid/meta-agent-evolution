@@ -61,3 +61,13 @@ Para el tipo, `type`, `failureType` y `failure_type` usan la misma regla; si no 
 La clave de grupo es `JSON.stringify([harness, code, type ?? ""])`; el orden de salida es ascendente por `harness`, `code` y `type`. Cada resultado tiene `{ harness, code, type, eventCount, totalOccurrences, sessionCount, sessions, evidenceRefs }`.
 
 `eventCount` cuenta entradas aceptadas del grupo; `totalOccurrences` suma `occurrences` si es un entero seguro positivo y usa 1 en caso contrario. `sessions` es la unión ordenada de `session` y `provenance[].session`. `evidenceRefs` mantiene el orden de los índices aceptados; cada referencia contiene solo `{ acceptedIndex, session, harness, date, occurrences }`. Solo se devuelven grupos con al menos `minSessions` sesiones distintas.
+
+## Propuestas revisables implementadas
+
+`src/proposals.mjs` exporta `buildProposals(patterns, options)` y `reviewProposal(proposal, action)`. `buildProposals` requiere `options.targetKind` igual a `agent`, `prompt` o `skill`. Omite patrones que no cumplen el contrato y solo copia campos permitidos. La propuesta no contiene sesiones; de cada referencia solo conserva `acceptedIndex` y `occurrences`. También excluye `session`, `harness` y `date` de las referencias, pero conserva el campo superior `harness` del patrón.
+
+`harness` y `code`, y `type` cuando no es `null`, deben cumplir `^[A-Za-z0-9._-]{1,128}$`. Este filtro limita el formato, pero no demuestra que el valor esté libre de PII. Los conteos deben ser enteros seguros positivos.
+
+El ID determinista es `prop-sha256-` seguido de SHA-256 de `JSON.stringify([harness, code, type ?? ""])`. `origin` registra `detectRecurrentFailures` y esa clave canónica. `diagnosis` contiene únicamente `eventCount`, `totalOccurrences` y `sessionCount`, sin atribuir causas o proponer correcciones.
+
+Las propuestas nacen con `status: "pending"` y un destino `{ kind, detail: null }`, donde `kind` lo indica explícitamente quien las construye. `reviewProposal` solo acepta `approve` o `reject` para una propuesta pendiente válida y devuelve un clon con el nuevo estado. La revisión no autentica al usuario, no persiste, no altera la entrada ni realiza E/S, llamadas de red o acciones en agentes/configuración. El plan v6 relacionado conserva su estado DRAFT.

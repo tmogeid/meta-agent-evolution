@@ -49,3 +49,11 @@ Con Node.js 22 o posterior, ejecutar `npm test`. El workflow de CI ejecuta esa m
 ## Límites
 
 La aprobación humana es obligatoria antes de evaluar propuestas. Este repositorio no ejecuta agentes, no modifica otros proyectos y no hereda código ni historial de trabajos anteriores.
+
+## Propuestas revisables implementadas
+
+`src/proposals.mjs` exporta `buildProposals(patterns, options)` y `reviewProposal(proposal, action)`. La construcción requiere `options.targetKind` explícito (`agent`, `prompt` o `skill`); no elige un destino por omisión. El identificador estable usa SHA-256 sobre `JSON.stringify([harness, code, type ?? ""])`.
+
+Las propuestas incluyen conteos agregados, referencias limitadas a `{ acceptedIndex, occurrences }`, diagnóstico factual, origen del detector y estado inicial `pending`. No copian sesiones ni otros campos de las referencias de entrada. `harness` y `code`, y `type` cuando no es `null`, aceptan únicamente letras ASCII, dígitos, punto, guion y guion bajo, con longitud de 1 a 128 caracteres. Esta allowlist no demuestra que un valor esté libre de PII; no se deben suministrar datos personales.
+
+`reviewProposal` acepta `approve` o `reject` solo para propuestas `pending` y devuelve un clon con el nuevo estado. No valida identidad o autenticación externa, no persiste cambios y no ejecuta acciones sobre archivos, configuración, agentes o red. El plan v6 relacionado permanece en estado DRAFT.
