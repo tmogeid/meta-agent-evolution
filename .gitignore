@@ -39,3 +39,6 @@ secrets*
 *.sqlite3
 *.session
 sessions/
+
+# Internal planning docs (kept locally, not published)
+plan-*.md

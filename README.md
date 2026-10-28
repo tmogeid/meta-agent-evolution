@@ -1,59 +1,65 @@
 # Meta Agent Evolution
 
-Repositorio independiente para documentar la evolución futura de agentes. Incluye un módulo puro para ingesta de evidencias sintéticas; no implementa el motor ni adaptadores ejecutables.
+Repositorio independiente para experimentar con la evolución futura de agentes a partir de evidencia sintética. Implementa 4 etapas en ESM puro (Node.js 22+, sin dependencias): ingesta, detección de patrones, propuestas revisables y adaptador Meta desacoplado. No incluye motor evolutivo ni adaptadores ejecutables contra sistemas reales.
 
-## Alcance inicial
+## Qué es
 
-- OpenCode se considera el primer adaptador futuro.
-- El motor se diseñará como componente independiente de los adaptadores.
-- Los adaptadores futuros de memoria y arneses se mantienen como conceptos, no como código presente.
-- El flujo documentado es: datos sintéticos → patrones → propuesta estructurada → aprobación humana → evaluación.
-- Cualquier etapa Meta posterior queda condicionada a autorización explícita del modelo, las credenciales y el presupuesto.
+- Entrada exclusivamente sintética; sin datos reales, sin PII y sin red por defecto.
+- Módulos en `src/`: `evidence.mjs`, `patterns.mjs`, `proposals.mjs`, `meta-adapter.mjs`.
+- Demo integral en `examples/meta-synthetic.mjs` con cliente simulado en memoria.
+- Diseño en `docs/architecture.md`; decisiones en `docs/adr-001-recurrent-failure-contract.md` y `docs/adr-003-omniroute-muse-spark-open.md`.
+- Procedencia en `docs/prior-work.md` y `docs/attributions.md`.
 
-No se usan datos reales, servicios externos, dependencias npm ni API pagas. El plan v2 ubicado fuera de este subdirectorio permanece como borrador y no forma parte de este repositorio.
+## Las 4 etapas implementadas
 
-## Ingesta de evidencias sintéticas
+1. **Ingesta (`src/evidence.mjs`)** — `validateEvidence(record)` e `ingestBatch(records, options)`. Cada evidencia contiene exactamente `source`, `harness`, `session`, `date`, `type` y `result`, con identificadores recortados y fecha UTC ISO 8601 canonizada. `result` admite solo JSON seguro, finito y acíclico, con límites de tamaño, profundidad y nodos. Sin campos adicionales.
+2. **Detección (`src/patterns.mjs`)** — `detectRecurrentFailures(acceptedRecords, options)`. Agrupa fallos con igual arnés, código y tipo en dos o más sesiones distintas. Solo acepta `status` igual a `error` o `failure`; omite registros ambiguos o malformados sin copiar su contenido.
+3. **Propuestas (`src/proposals.mjs`)** — `buildProposals(patterns, options)` y `reviewProposal(proposal, action)`. Exige `targetKind` explícito (`agent`, `prompt` o `skill`). Cada propuesta nace `pending` con identificador estable SHA-256 y referencias mínimas. Solo admite `approve` o `reject` humanos; prohíbe la autoaprobación.
+4. **Adaptador Meta (`src/meta-adapter.mjs`)** — `createMetaAdapter(config)` desacoplado y configurable vía OmniRoute. Transforma patrón y hechos observados en consulta estructurada, valida la respuesta con esquema local estricto y exige biyección de identificadores de evidencia.
 
-`src/evidence.mjs` exporta `validateEvidence(record)` e `ingestBatch(records, options)`. El módulo es puro, usa solo Node.js/JavaScript estándar y no conecta con servicios, bases de datos ni agentes.
+## Instalación y verificación
 
-Cada evidencia contiene exactamente `source`, `harness`, `session`, `date`, `type` y `result`. Los cuatro identificadores son cadenas no vacías de hasta 1.024 caracteres y se recortan en los extremos; `date` debe ser una marca UTC ISO 8601 válida con hasta nueve dígitos fraccionarios, canonizada sin perder precisión.
+Requiere Node.js 22 o posterior. Sin dependencias externas.
 
-`result` admite solo valores JSON seguros y finitos: cadenas, números finitos, booleanos, `null`, arreglos y objetos planos, sin ciclos. Las cadenas admiten hasta 100.000 caracteres cada una, con un máximo agregado de 1.000.000 de caracteres, 100 niveles y 10.000 nodos. No se permiten campos adicionales; el lote conserva todas las posiciones recibidas.
+```sh
+npm test
+```
 
-`validateEvidence` devuelve `{ valid, errors }`, con errores compuestos por `field` y `message`, sin incluir valores de entrada. `ingestBatch` devuelve `{ accepted, rejected }`: cada entrada aceptada contiene los seis campos normalizados y añade `provenance` (fuente, arnés, sesión, fecha e índice de entrada) y `occurrences`.
+El workflow de CI ejecuta la misma prueba en Windows, Ubuntu y macOS.
 
-La procedencia de cada aparición conserva los valores originales validados; las entradas idénticas en los seis campos normalizados se agrupan en su primera posición y acumulan una procedencia por aparición. Un arnés distinto produce un registro separado. Cada rechazo incluye su índice y errores, no el registro rechazado. En esta versión `options` debe ser un objeto vacío.
+## Demo sintética
 
-### Detector de fallos recurrentes
+```sh
+node examples/meta-synthetic.mjs
+```
 
-`src/patterns.mjs` exporta `detectRecurrentFailures(acceptedRecords, options = {})`. Recibe exclusivamente el arreglo `accepted` de `ingestBatch`; no consume `rejected` ni sus errores.
+La demo ingiere dos evidencias sintéticas (fallo `E_TIMEOUT` en `node-test`, sesiones distintas), detecta el patrón recurrente, construye una propuesta `pending` y la resuelve con una recomendación simulada en memoria. No realiza tráfico de red.
 
-`acceptedRecords` debe ser un arreglo. `options` debe ser un objeto no nulo ni arreglo; `minSessions` es un entero de al menos 2 y su valor predeterminado es 2. Una entrada no-array u opciones inválidas producen `TypeError`; un `minSessions` no entero también produce `TypeError`, y un entero menor que 2 produce `RangeError`.
+## Configuración OmniRoute
 
-Solo se consideran elementos con `harness`, `session` y `date` válidos y un `result` que sea objeto plano JSON seguro, finito y acíclico. El estado debe ser exactamente `error` o `failure`.
+Valores por omisión de `createMetaAdapter(config)`:
 
-Entre `code` y `failureCode`, cero alias string no vacíos significa que no hay fallo; un solo valor normalizado o valores iguales identifican el código; valores distintos omiten el elemento. Para `type`, `failureType` y `failure_type`, cero alias válidos produce `null`, valores iguales producen el tipo y valores distintos omiten el elemento. Los alias string se recortan; no se combinan fallos ambiguos. Los elementos malformados se omiten sin copiar ni incluir su contenido en errores.
+- **Endpoint:** `http://127.0.0.1:20129/v1` (solo `127.0.0.1`, `localhost` o `[::1]`; rechaza hosts externos).
+- **Modelo:** `baseten/meta-models/muse-spark-open-1026`.
+- **Modo seguro:** `offline: true` y `enabled: false` por omisión; sin llamadas de red salvo activación explícita.
+- **Credenciales:** `OMNIROUTE_API_KEY` leída solo desde `process.env`. Nunca en archivos ni en el repositorio. La plantilla `.env.example` la deja vacía.
+- **Variables (ver `.env.example`):** `OMNIROUTE_BASE_URL`, `OMNIROUTE_MODEL`, `OMNIROUTE_API_KEY`.
+- **Límites:** `OMNIROUTE_MAX_REQUESTS` (1 por ciclo), `OMNIROUTE_MAX_OUTPUT_TOKENS` (512), `OMNIROUTE_MAX_INPUT_CHARACTERS` (16000), `OMNIROUTE_MAX_RESPONSE_BYTES` (256000).
+- **Presupuesto opcional:** `OMNIROUTE_MAX_COST`, `OMNIROUTE_INPUT_COST_PER_MILLION`, `OMNIROUTE_OUTPUT_COST_PER_MILLION`. El exceso aborta antes de emitir.
 
-La agrupación usa `JSON.stringify([harness, code, type ?? ""])` y el resultado se ordena por `harness`, `code` y `type`. Cada patrón contiene `{ harness, code, type, eventCount, totalOccurrences, sessionCount, sessions, evidenceRefs }`.
+## Qué NO está implementado
 
-`eventCount` cuenta elementos aceptados únicos del grupo; `totalOccurrences` suma `occurrences` cuando es un entero seguro positivo y usa 1 en otro caso. `sessions` es la unión ordenada de la sesión del registro y de `provenance[].session`.
+- Inferencia real contra un endpoint: el opt-in en vivo está desactivado. Toda ejecución real queda pendiente de autorización explícita de modelo, credenciales y presupuesto.
+- Motor evolutivo independiente: solo diseño futuro, no implementado.
+- Adaptador OpenCode ejecutable y adaptadores de memoria o arneses: conceptos futuros, no código presente.
+- Autoaprobación programática: prohibida. Sin aprobación humana no hay evaluación ni ejecución.
 
-Cada referencia, en orden de índice aceptado, contiene únicamente `{ acceptedIndex, session, harness, date, occurrences }`. Se devuelven solo grupos con al menos `minSessions` sesiones distintas. El detector no devuelve `source`, `result` ni otros datos arbitrarios.
+## Nuevo frente a trabajos previos
 
-Los registros sintéticos se proporcionan al módulo como entrada; no hay fixtures ni almacenamiento de evidencias en el repositorio.
-
-## Verificación
-
-Con Node.js 22 o posterior, ejecutar `npm test`. El workflow de CI ejecuta esa misma prueba en Windows, Ubuntu y macOS.
+Este repositorio no importa código, archivos, dependencias ni historial de otros trabajos. Las notas de procedencia son solo referencia y no otorgan permiso de copia. Ver `docs/prior-work.md` y `docs/attributions.md` antes de proponer cualquier transferencia futura.
 
 ## Límites
 
-La aprobación humana es obligatoria antes de evaluar propuestas. Este repositorio no ejecuta agentes, no modifica otros proyectos y no hereda código ni historial de trabajos anteriores.
-
-## Propuestas revisables implementadas
-
-`src/proposals.mjs` exporta `buildProposals(patterns, options)` y `reviewProposal(proposal, action)`. La construcción requiere `options.targetKind` explícito (`agent`, `prompt` o `skill`); no elige un destino por omisión. El identificador estable usa SHA-256 sobre `JSON.stringify([harness, code, type ?? ""])`.
-
-Las propuestas incluyen conteos agregados, referencias limitadas a `{ acceptedIndex, occurrences }`, diagnóstico factual, origen del detector y estado inicial `pending`. No copian sesiones ni otros campos de las referencias de entrada. `harness` y `code`, y `type` cuando no es `null`, aceptan únicamente letras ASCII, dígitos, punto, guion y guion bajo, con longitud de 1 a 128 caracteres. Esta allowlist no demuestra que un valor esté libre de PII; no se deben suministrar datos personales.
-
-`reviewProposal` acepta `approve` o `reject` solo para propuestas `pending` y devuelve un clon con el nuevo estado. No valida identidad o autenticación externa, no persiste cambios y no ejecuta acciones sobre archivos, configuración, agentes o red. El plan v6 relacionado permanece en estado DRAFT.
+- Aprobación humana obligatoria antes de evaluar propuestas.
+- Los módulos puros no realizan E/S, no usan red y no modifican otros proyectos.
+- No suministrar datos personales; la lista de identificadores admitidos no acredita ausencia de PII.
